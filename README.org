@@ -4,3 +4,4 @@
 ** Tips
    - You can bind a key in ~dired-mode-map~ to start preview mode quickly.
    - This package defaults to set ~dired-file-preview-literal-p~ to ~t~ . So if you want to preview file with highlight, set it to ~nil~ .
+   - By default, this package only allows user to enabled preview at 1 dired buffer.
