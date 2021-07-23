@@ -3,9 +3,9 @@
 ;; Author: SpringHan
 ;; Maintainer: SpringHan
 ;; Version: 1.0
-;; Package-Requires: ()
-;; Homepage: https://github.com/SpringHan/dired-file-preview
-;; Keywords: 
+;; Package-Requires: ((emacs "27.1"))
+;; Homepage: https://github.com/SpringHan/dired-file-preview.git
+;; Keywords: files
 
 
 ;; This file is not part of GNU Emacs
@@ -42,6 +42,7 @@
 
 (defcustom dired-file-preview-window nil
   "The preview window."
+  :type 'window
   :group 'dired)
 
 (defcustom dired-file-preview-sync-file-timer nil
@@ -64,11 +65,6 @@
   :type 'boolean
   :group 'dired)
 
-(defcustom dired-file-preview-info-storage nil
-  "Storage for the file preview info."
-  :type 'list
-  :group 'dired)
-
 ;;;###autoload
 (define-minor-mode dired-file-preview-mode
   "File preview mode for dired."
@@ -76,12 +72,10 @@
   (if dired-file-preview-mode
       (progn
         (if dired-hide-details-mode
-            (setq-local dired-file-preview-hide-details-p t)
+            (setq dired-file-preview-hide-details-p t)
           (dired-hide-details-mode t)
-          (setq-local dired-file-preview-hide-details-p nil))
-        (dired-file-preview--setup)
-        (add-hook 'dired-before-readin-hook #'dired-file-preview--convert-infos nil t)
-        (advice-add 'kill-buffer :before #'dired-file-preview-kill-buffer))
+          (setq dired-file-preview-hide-details-p nil))
+        (dired-file-preview--setup))
     (cancel-timer dired-file-preview-sync-file-timer)
     (delete-window dired-file-preview-window)
     (kill-buffer dired-file-preview-preview-buffer)
@@ -89,9 +83,7 @@
                 dired-file-preview-window nil
                 dired-file-preview-preview-buffer nil)
     (unless dired-file-preview-hide-details-p
-      (dired-hide-details-mode -1))
-    (remove-hook 'dired-before-readin-hook #'dired-file-preview--convert-infos t)
-    (advice-remove 'kill-buffer #'dired-file-preview-kill-buffer)))
+      (dired-hide-details-mode -1))))
 
 (defun dired-file-preview--setup ()
   "File preview setup."
@@ -100,7 +92,7 @@
           (width (number-to-string (- (* 0.7 (frame-width)))))
           (buffer-name (format "*Dired-Preview:%s*" (buffer-name))))
       (when (dired-file-preview--other-windows-p)
-        (setq-local dired-file-preview-new-tab-p t)
+        (setq dired-file-preview-new-tab-p t)
         (tab-bar-new-tab)
         (switch-to-buffer dired-buffer))
       (setq-local dired-file-preview-window
@@ -120,32 +112,80 @@
 
 (defun dired-file-preview-sync-file ()
   "Sync current file."
-  (when (and (eq major-mode 'dired-mode)
-             dired-file-preview-preview-buffer)
-    (let ((current-file (ignore-errors (dired-get-filename)))
-          file-mode)
-      ;; TODO: Add check for image
-      (when (and current-file
-                 (not (file-directory-p current-file))
-                 (not (eq current-file dired-file-preview-current-file)))
-        (unless dired-file-preview-literal-p
-          (setq file-mode (assoc-default current-file
-                                         auto-mode-alist
-                                         'string-match)))
-        (with-current-buffer dired-file-preview-preview-buffer
-          (when (eq major-mode 'image-mode)
-            (text-mode))
-          (setq-local buffer-read-only nil)
-          (erase-buffer)
-          (insert-file-contents current-file)
-          (unless dired-file-preview-literal-p
-            (eval
-             `(progn
-                (setq-local ,(intern (concat (symbol-name file-mode) "-hook"))
-                            nil)
-                (,file-mode))))
-          (goto-char (point-min)))
-        (setq-local dired-file-preview-current-file current-file)))))
+  (if (eq major-mode 'dired-mode)
+      (if dired-file-preview-mode
+          (let ((current-file (ignore-errors (dired-get-filename)))
+                file-mode)
+            (when (and current-file
+                       (not (file-directory-p current-file))
+                       (not (eq current-file dired-file-preview-current-file)))
+              (unless dired-file-preview-literal-p
+                (setq file-mode (assoc-default current-file
+                                               auto-mode-alist
+                                               'string-match)))
+              (with-current-buffer dired-file-preview-preview-buffer
+                (when (eq major-mode 'image-mode)
+                  (text-mode))
+                (setq-local buffer-read-only nil)
+                (erase-buffer)
+                (insert-file-contents current-file)
+                (unless dired-file-preview-literal-p
+                  (eval
+                   `(progn
+                      (setq-local ,(intern (concat (symbol-name file-mode) "-hook"))
+                                  nil)
+                      (,file-mode))))
+                (goto-char (point-min)))
+              (setq-local dired-file-preview-current-file current-file)))
+
+        (let ((preview-buffer (dired-file-preview--get-preview-buffer))
+              (buffer-name (buffer-name)))
+          (with-current-buffer buffer-name
+            (setq-local dired-file-preview-mode t)
+            (when (null dired-hide-details-mode)
+              (dired-hide-details-mode t)))
+          (if preview-buffer
+              (progn
+                (with-current-buffer preview-buffer
+                  (rename-buffer (format "*Dired-Preview:%s*" buffer-name)))
+                (with-current-buffer buffer-name
+                  (setq-local dired-file-preview-sync-file-timer
+                              (dired-file-preview--get-preview-timer)
+                              dired-file-preview-preview-buffer preview-buffer
+                              dired-file-preview-window
+                              (get-buffer-window preview-buffer))))
+            (cancel-timer (dired-file-preview--get-preview-timer))
+            (with-current-buffer buffer-name
+              (delete-other-windows)
+              (dired-file-preview--setup)))))
+
+    (let ((dired-buffer-exists-p
+           (catch 'exists
+             (dolist (buffer dired-buffers)
+               (when (buffer-live-p (cdr buffer))
+                 (throw 'exists t)))))
+          (preview-buffer (dired-file-preview--get-preview-buffer)))
+      (unless dired-buffer-exists-p
+        (cancel-timer (dired-file-preview--get-preview-timer))
+        (when preview-buffer
+          (kill-buffer preview-buffer)
+          (if dired-file-preview-new-tab-p
+              (tab-bar-close-tab)
+            (delete-other-windows)))))))
+
+(defun dired-file-preview--get-preview-buffer ()
+  "Get the preview buffer in `buffer-list'."
+  (catch 'buffer
+    (dolist (buffer (buffer-list))
+      (when (string-match-p "\\*Dired-Preview:\\(.*\\)\\*" (buffer-name buffer))
+        (throw 'buffer buffer)))))
+
+(defun dired-file-preview--get-preview-timer ()
+  "Get the preview timer in `timer-list'."
+  (catch 'result
+    (dolist (timer timer-list)
+      (when (eq (timer--function timer) 'dired-file-preview-sync-file)
+        (throw 'result timer)))))
 
 (defun dired-file-preview--other-windows-p ()
   "To check if there're other windows in current tab."
@@ -153,34 +193,6 @@
     (other-window 1)
     (prog1 (not (eq current-window (get-buffer-window)))
       (select-window current-window))))
-
-(defun dired-file-preview--convert-infos ()
-  "Convert current dired buffer infos into another one."
-  (let ((last-buffer " **lose**")
-        dired-file-name)
-    (with-current-buffer last-buffer
-      (setq dired-file-preview-info-storage
-            `((dired-file-preview-preview-buffer . ,dired-file-preview-preview-buffer)
-              (dired-file-preview-new-tab-p . ,dired-file-preview-new-tab-p)
-              (dired-file-preview-window . ,dired-file-preview-window)
-              (dired-file-preview-sync-file-timer . ,dired-file-preview-sync-file-timer)
-              (dired-file-preview-hide-detials-p . ,dired-file-preview-hide-details-p))))
-    (with-current-buffer (current-buffer)
-      (setq-local dired-file-preview-mode t)
-      (setq dired-file-name (buffer-name))
-      (print dired-file-preview-info-storage)
-      (when (and dired-file-preview-info-storage
-                 (listp dired-file-preview-info-storage))
-        (dolist (var dired-file-preview-info-storage)
-          (eval `(setq-local ,(car var) ,(cdr var))))))
-    (with-current-buffer dired-file-preview-preview-buffer
-      (rename-buffer (format "*Dired-Preview:%s*" dired-file-name)))))
-
-(defun dired-file-preview-kill-buffer (&optional buffer-or-name)
-  "The function which will be called when kill dired buffer."
-  (with-current-buffer buffer-or-name
-    (when (eq major-mode 'dired)
-      (dired-file-preview-mode -1))))
 
 (provide 'dired-file-preview)
 
