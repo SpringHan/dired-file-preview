@@ -30,6 +30,8 @@
 
 ;;; Code:
 
+(require 'dired-x)
+
 (defcustom dired-file-preview-preview-buffer nil
   "The buffer name of preview buffer."
   :type 'string
