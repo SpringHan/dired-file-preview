@@ -112,31 +112,33 @@
 
 (defun dired-file-preview-sync-file ()
   "Sync current file."
-  (if (eq major-mode 'dired-mode)
+  (if (memq major-mode '(dired-mode wdired-mode))
       (if dired-file-preview-mode
-          (let ((current-file (ignore-errors (dired-get-filename)))
-                file-mode)
-            (when (and current-file
-                       (not (file-directory-p current-file))
-                       (not (eq current-file dired-file-preview-current-file)))
-              (unless dired-file-preview-literal-p
+          (when (eq major-mode 'dired-mode)
+            (let ((current-file (ignore-errors (dired-get-filename)))
+                  file-mode)
+              (when (and current-file
+                         (not (file-directory-p current-file))
+                         (not (eq current-file dired-file-preview-current-file)))
                 (setq file-mode (assoc-default current-file
                                                auto-mode-alist
-                                               'string-match)))
-              (with-current-buffer dired-file-preview-preview-buffer
-                (when (eq major-mode 'image-mode)
-                  (text-mode))
-                (setq-local buffer-read-only nil)
-                (erase-buffer)
-                (insert-file-contents current-file)
-                (unless dired-file-preview-literal-p
-                  (eval
-                   `(progn
-                      (setq-local ,(intern (concat (symbol-name file-mode) "-hook"))
-                                  nil)
-                      (,file-mode))))
-                (goto-char (point-min)))
-              (setq-local dired-file-preview-current-file current-file)))
+                                               'string-match))
+                (with-current-buffer dired-file-preview-preview-buffer
+                  (when (eq major-mode 'image-mode)
+                    (text-mode))
+                  (setq-local buffer-read-only nil)
+                  (erase-buffer)
+                  (insert-file-contents current-file)
+                  (if (eq file-mode 'image-mode)
+                      (image-mode)
+                    (unless dired-file-preview-literal-p
+                      (eval
+                       `(progn
+                          (setq-local ,(intern (concat (symbol-name file-mode) "-hook"))
+                                      nil)
+                          (,file-mode)))))
+                  (goto-char (point-min)))
+                (setq-local dired-file-preview-current-file current-file))))
 
         (let ((preview-buffer (dired-file-preview--get-preview-buffer))
               (buffer-name (buffer-name)))
