@@ -150,7 +150,7 @@
                     (goto-char (point-min)))
                   (setq-local dired-file-preview-current-file current-file))))
 
-            (let (width preview-buffer current-window)
+            (let (width preview-buffer current-window windows)
               (unless (dired-file-preview--window-exists-in-tab
                        (get-buffer-window dired-file-preview-preview-buffer))
                 (unless (eq dired-file-preview-current-tab (tab-bar--current-tab-index))
@@ -159,7 +159,21 @@
                   (message "[Dired-File-Preview]: Deleted the former tab which includes dired & preview buffer."))
                 (setq width (number-to-string (- (* 0.7 (frame-width))))
                       preview-buffer dired-file-preview-preview-buffer
-                      current-window (selected-window))
+                      current-window (selected-window)
+                      windows (dired-file-preview--other-windows-p t))
+                (cond ((and (= windows 2)
+                            (prog2 (other-window 1)
+                                (memq major-mode '(dired-mode wdired-mode))
+                              (select-window current-window)))
+                       ;; Check if there're two dired window in current tab,
+                       ;; If it's true, delete another one.
+                       (delete-other-windows current-window))
+                      ((> windows 1)
+                       (tab-bar-new-tab)
+                       (switch-to-buffer (current-buffer))
+                       (setq dired-file-preview-new-tab-p t)
+                       (setq-local dired-file-preview-current-tab
+                                   (tab-bar--current-tab-index))))
                 (setq-local dired-file-preview-window
                             (split-window nil
                                           (string-to-number
@@ -250,7 +264,8 @@
       (while (not (eq start-window (selected-window)))
         (when (eq (selected-window) window)
           (select-window start-window)
-          (throw 'result t))))))
+          (throw 'result t))
+        (other-window 1)))))
 
 (defun dired-file-preview--get-preview-timer ()
   "Get the preview timer in `timer-list'."
@@ -259,12 +274,20 @@
       (when (eq (timer--function timer) 'dired-file-preview-sync-file)
         (throw 'result timer)))))
 
-(defun dired-file-preview--other-windows-p ()
-  "To check if there're other windows in current tab."
-  (let ((current-window (get-buffer-window)))
+(defun dired-file-preview--other-windows-p (&optional get-number)
+  "To check if there're other windows in current tab.
+If GET-NUMBER is non-nil, return the number of windows in current tab."
+  (let ((current-window (get-buffer-window))
+        (num 1))
     (other-window 1)
-    (prog1 (not (eq current-window (get-buffer-window)))
-      (select-window current-window))))
+    (if get-number
+        (progn
+          (while (not (eq (get-buffer-window) current-window))
+            (setq num (1+ num))
+            (other-window 1))
+          num)
+      (prog1 (not (eq current-window (get-buffer-window)))
+        (select-window current-window)))))
 
 (provide 'dired-file-preview)
 
