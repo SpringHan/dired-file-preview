@@ -151,7 +151,8 @@
                   (setq-local dired-file-preview-current-file current-file))))
 
             (let (width preview-buffer current-window)
-              (unless (dired-file-preview--window-exists-in-tab dired-file-preview-window)
+              (unless (dired-file-preview--window-exists-in-tab
+                       (get-buffer-window dired-file-preview-preview-buffer))
                 (unless (eq dired-file-preview-current-tab (tab-bar--current-tab-index))
                   (tab-bar-close-tab dired-file-preview-current-tab)
                   (setq-local dired-file-preview-current-tab (tab-bar--current-tab-index))
@@ -197,24 +198,26 @@
               (delete-other-windows)
               (dired-file-preview--setup)))))
 
-    (let ((dired-buffer-exists-p
-           (catch 'exists
-             (dolist (buffer dired-buffers)
-               (when (buffer-live-p (cdr buffer))
-                 (throw 'exists t)))))
-          (preview-buffer (dired-file-preview--get-preview-buffer))
-          tmp)
-      (if dired-buffer-exists-p
+    (let* ((preview-buffer (dired-file-preview--get-preview-buffer))
+           (dired-buffer (when preview-buffer
+                           (dired-file-preview--get-dired-buffer
+                            preview-buffer)))
+           tmp)
+      (if dired-buffer
           (when (and (not (minibufferp))
-                     (not (eq (current-buffer) preview-buffer))
-                     (setq tmp (get-buffer-window preview-buffer))
-                     (dired-file-preview--window-exists-in-tab tmp))
-            (delete-window tmp))
+                     (not (eq (current-buffer) preview-buffer)))
+            (cond ((and (setq tmp (get-buffer-window preview-buffer))
+                        (dired-file-preview--window-exists-in-tab tmp))
+                   ;; To check if the current buffer is neither current dired buffer nor preview buffer
+                   (delete-window tmp))
+                  ((dired-file-preview--window-exists-in-tab
+                    (setq tmp (get-buffer-window dired-buffer)))
+                   (delete-window tmp))))
         (cancel-timer (dired-file-preview--get-preview-timer))
         (when preview-buffer
           (kill-buffer preview-buffer)
           (if dired-file-preview-new-tab-p
-              (tab-bar-close-tab)
+              (tab-bar-close-tab dired-file-preview-current-tab)
             (delete-other-windows)))))))
 
 (defun dired-file-preview--get-preview-buffer ()
